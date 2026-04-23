@@ -14,3 +14,32 @@ bool check_files(char* file_name){
     }
     return true;
 }
+void send_data(char *file_name, int sd){
+    struct stat sb;
+    stat(file_name,&sb);
+    uint32_t file_size = htonl((uint32_t)sb.st_size);
+    write(sd, &file_size, sizeof(uint32_t));
+    char buffer[4096];
+    int fd = open(file_name,O_RDONLY);
+    int sz;
+    while((sz = read(fd,buffer,sizeof(buffer))) > 0){
+        write(sd,buffer,sz);
+    }
+    close(fd);
+}
+void rcv_data(char* file_name, int nsd, bool state){
+    uint32_t file_size;
+    read(nsd, &file_size, sizeof(uint32_t));
+    file_size = ntohl(file_size);
+    int fd;
+    if(state == 0)
+        fd = mkstemps(file_name, 2);
+    else 
+        fd = open(file_name, O_CREAT | O_RDWR | O_TRUNC,0777);
+    char buffer[4096];
+    while(file_size > 0){
+        int c = read(nsd, buffer, sizeof(buffer));
+        assert(c == write(fd, buffer, c));
+        file_size -= c;
+    }
+}

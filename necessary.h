@@ -12,4 +12,5 @@
 #include <sys/stat.h>
 #include <stdbool.h>
 #include <assert.h>
+#include <sys/wait.h>
 #define PORT_NO 8080

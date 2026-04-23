@@ -1,4 +1,5 @@
 #include "necessary.h"
+#include "helper.h"
 #include <pthread.h>
 int disable_nagle(int fd){
     int opt = 1;
@@ -16,18 +17,24 @@ void init_connection(int *sd){
 }
 void* handle_client(void* arg){
     int nsd = *(int*)arg;
+    free(arg);
+    printf("[Thread %lu] Handling new compilation job...\n", pthread_self());
     char temp_filename[] = "job_XXXXXX.c";
-    uint32_t file_size;
-    read(nsd, &file_size, sizeof(uint32_t));
-    file_size = ntohl(file_size);
-    int fd = mkstemps(temp_filename, 2);
-    char buffer[4096];
-    while(file_size > 0){
-        int c = read(nsd, buffer, sizeof(buffer));
-        assert(c == write(fd, buffer, c));
-        file_size -= c;
+    rcv_data(temp_filename, nsd, 0);
+    if(!fork()){
+        close(nsd);
+        char *arguments[] = {"gcc","-c",temp_filename,NULL};
+        execvp("gcc", arguments);
+    }else{
+        wait(NULL);
+        char output_file[strlen(temp_filename) + 1];
+        strcpy(output_file, temp_filename);
+        output_file[strlen(temp_filename) - 1] = 'o';
+        send_data(output_file, nsd);
+        close(nsd);
     }
-    close(nsd);
+    printf("[Thread %lu] Job finished.\n", pthread_self());
+    return NULL;
 }
 int main(){
     int sd;
@@ -35,7 +42,10 @@ int main(){
     while(1){
         int nsd = accept(sd, NULL, NULL);
         pthread_t thread_id;
-        pthread_create(&thread_id, NULL, handle_client,(void *)(&nsd));
+        //malloc karna padega
+        int *arg = (int *)malloc(sizeof(int));
+        *arg = nsd;
+        pthread_create(&thread_id, NULL, handle_client,(void *)(arg));
         pthread_detach(thread_id);
     }
 }
