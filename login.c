@@ -6,15 +6,16 @@ login_info display_login_page(){
     printf("Select Your Role: \n");
     printf("1. ADMIN\n");
     printf("2. USER\n");
-    printf("\n====================\n");
+    printf("====================\n");
     int response;
+    printf("Enter your choice: ");
     scanf("%d", &response);
     Roles role = (Roles)response;
     bool found = 0;
     if(role == ROLE_ADMIN){
-        printf("\nEnter your adminID\n");
+        printf("\nEnter your adminID: ");
     }else{
-        printf("\nEnter your userID\n");
+        printf("\nEnter your userID: ");
     }
     int id;
     scanf("%d",&id);

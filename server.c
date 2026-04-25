@@ -1,7 +1,9 @@
 #include "server.h"
 uint32_t total_jobs = 0;
 uint32_t active_jobs = 0;
+uint32_t accepted_jobs = 0;
 int exit_signal = 0;
+int cores;
 pthread_mutex_t stats_lock = PTHREAD_MUTEX_INITIALIZER;
 
 void init_connection(int *sd){
@@ -18,7 +20,7 @@ void init_connection(int *sd){
         close(*sd);
         return;
     }
-    if(listen(*sd, 5) == -1){
+    if(listen(*sd, 100) == -1){
         perror("listen");
         close(*sd);
         return;
@@ -29,10 +31,15 @@ void* handle_client(void* arg){
     free(arg);
     printf("[Thread %lu] Handling new compilation job...\n", pthread_self());
     char temp_filename[] = "job_XXXXXX.c";
+    rcv_data(temp_filename, nsd, 0);
     pthread_mutex_lock(&stats_lock);
+    while (active_jobs >= cores){
+        pthread_mutex_unlock(&stats_lock);
+        sched_yield();
+        pthread_mutex_lock(&stats_lock);
+    }
     active_jobs++;
     pthread_mutex_unlock(&stats_lock);
-    rcv_data(temp_filename, nsd, 0);
     pid_t pid = fork();
     if(!pid){
         close(nsd);
@@ -42,20 +49,28 @@ void* handle_client(void* arg){
         exit(1);
     }else{
         waitpid(pid,NULL,0);
+        pthread_mutex_lock(&stats_lock);
+        active_jobs--; 
+        pthread_mutex_unlock(&stats_lock);
         char output_file[strlen(temp_filename) + 1];
         strcpy(output_file, temp_filename);
         output_file[strlen(temp_filename) - 1] = 'o';
         send_data(output_file, nsd);
         close(nsd);
+        unlink(output_file);
+        unlink(temp_filename);
     }
     pthread_mutex_lock(&stats_lock);
     total_jobs++;
-    active_jobs--;
+    accepted_jobs--;
     pthread_mutex_unlock(&stats_lock);
     printf("[Thread %lu] Job finished.\n", pthread_self());
     return NULL;
 }
 int main(){
+    signal(SIGPIPE, SIG_IGN);
+    cores = get_nprocs();
+    printf("avaliable cores are: %d\n",cores);
     int sd;
     init_connection(&sd);
     while(1){
@@ -81,12 +96,21 @@ int main(){
             }
             close(nsd);
         }else if(cph.rd == ROLE_USER){
-            pthread_t thread_id;
-            //malloc karna padega
-            int *arg = (int *)malloc(sizeof(int));
-            *arg = nsd;
-            pthread_create(&thread_id, NULL, handle_client,(void *)(arg));
-            pthread_detach(thread_id);
+            if(cph.operation == COMPILE_FILE){
+                pthread_mutex_lock(&stats_lock);
+                accepted_jobs++;
+                pthread_mutex_unlock(&stats_lock);
+                pthread_t thread_id;
+                //malloc karna padega
+                int *arg = (int *)malloc(sizeof(int));
+                *arg = nsd;
+                pthread_create(&thread_id, NULL, handle_client,(void *)(arg));
+                pthread_detach(thread_id);
+            }else{
+                uint32_t threads_avaliable = htonl(cores > accepted_jobs);
+                write(nsd, &threads_avaliable, sizeof(uint32_t));
+                close(nsd);
+            }
         }else{
             close(nsd);
         }

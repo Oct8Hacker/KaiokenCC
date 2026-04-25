@@ -44,11 +44,11 @@ bool rcv_data(char* file_name, int nsd, bool state){
     int read_data;
     while(file_size > 0){
         int c = read(nsd, buffer, sizeof(buffer));
-        if(c <= 0){
-            perror("Error: ");
-            close(fd);
-            return false;
-        }
+        // if(c <= 0){
+        //     perror("Error: ");
+        //     close(fd);
+        //     return false;
+        // }
         assert(c == write(fd, buffer, c));
         file_size -= c;
     }

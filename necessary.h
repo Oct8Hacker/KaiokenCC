@@ -15,6 +15,8 @@
 #include <sys/wait.h>
 #include <pthread.h>
 #include <sched.h>
+#include <sys/sysinfo.h>
+#include <signal.h>
 #define PORT_NO 8080
 typedef enum {
     ROLE_ADMIN = 1,
@@ -23,4 +25,9 @@ typedef enum {
 struct client_packet_header{
     Roles rd;
     int operation;
+    int user_id;
 };
+typedef enum{
+    PING_IP = 1,
+    COMPILE_FILE = 2,
+} User_OP;
