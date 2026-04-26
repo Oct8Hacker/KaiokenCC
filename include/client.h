@@ -1,6 +1,7 @@
 #pragma once
 #include "helper.h"
 #include "login.h"
+#include "error_logger.h"
 struct thread_args{
     char* file_name;
     int* sd;  

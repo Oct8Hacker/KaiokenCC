@@ -14,14 +14,14 @@ login_info display_login_page(int argc){
     if(argc == 1){
         assert((int)role == argc);
     }
-    bool found = 0;
     if(role == ROLE_ADMIN){
-        printf("Enter your adminID: ");
+        printf("\nEnter your adminID: ");
     }else{
-        printf("Enter your userID: ");
+        printf("\nEnter your userID: ");
     }
     int id;
     scanf("%d",&id);
+    LOG_DEBUG(id, "Login attempt recorded with role: %s", role == ROLE_ADMIN ? "ADMIN" : "USER");
     login_info info = {role, id};
     return info;
 }

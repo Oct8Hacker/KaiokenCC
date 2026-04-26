@@ -19,7 +19,10 @@
 #include <signal.h>
 #include <errno.h>
 #include "error_logger.h"
+#include <time.h>
+#include "log_helper.h"
 #define PORT_NO 8080
+#define CLIENT 100
 typedef enum {
     ROLE_ADMIN = 1,
     ROLE_USER = 2,

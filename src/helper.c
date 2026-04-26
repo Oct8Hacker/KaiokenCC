@@ -18,26 +18,27 @@ bool check_files(char* file_name){
     }
     return true;
 }
-void send_data(char *file_name, int sd){
+bool send_data(char *file_name, int sd){
     struct stat sb;
     stat(file_name,&sb);
     uint32_t file_size = htonl((uint32_t)sb.st_size);
     int val = write(sd, &file_size, sizeof(uint32_t));
     if(val < 0){
         print_sys_error("File transfer from host to server failed");
-        return;
+        return false;
     }
     char buffer[4096];
     int fd = open(file_name,O_RDONLY);
     if(fd < 0){
         print_sys_error("Open Failed on server side.");
-        return;
+        return false;
     }
     int sz;
     while((sz = read(fd,buffer,sizeof(buffer))) > 0){   
         write(sd,buffer,sz);
     }
     close(fd);
+    return true;
 }
 bool rcv_data(char* file_name, int nsd, bool state){
     uint32_t file_size;
@@ -57,7 +58,6 @@ bool rcv_data(char* file_name, int nsd, bool state){
         return false;
     }
     char buffer[4096];
-    int read_data;
     while(file_size > 0){
         int c = read(nsd, buffer, sizeof(buffer));
         if(c <= 0){
