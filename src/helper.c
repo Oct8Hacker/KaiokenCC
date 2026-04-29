@@ -34,8 +34,10 @@ bool send_data(char *file_name, int sd){
         return false;
     }
     int sz;
+    int size_sent = 0;
     while((sz = read(fd,buffer,sizeof(buffer))) > 0){   
         write(sd,buffer,sz);
+        size_sent += sz;
     }
     close(fd);
     return true;
@@ -58,16 +60,23 @@ bool rcv_data(char* file_name, int nsd, bool state){
         return false;
     }
     char buffer[4096];
-    while(file_size > 0){
+    int size_read_till_now = 0;
+    while(size_read_till_now < (int)file_size){
         int c = read(nsd, buffer, sizeof(buffer));
-        if(c <= 0){
+        if(c < 0){
             print_error("Read the file failed!");
             close(fd);
             return false;
+        }else if(c == 0){
+            break;
         }
         assert(c == write(fd, buffer, c));
-        file_size -= c;
+        size_read_till_now+=c;
     }
     close(fd);
+    if(size_read_till_now != (int)file_size){
+        LOG_ERROR(0,"%s got improper data!", (state == 0) ? "Server" : "Client");
+        exit(1);
+    }
     return true;
 }

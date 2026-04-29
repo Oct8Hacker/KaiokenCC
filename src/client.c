@@ -22,13 +22,13 @@ bool init_connection(int *sd, char* ip){
 }
 void* send_multiple_files(void *arg){
     struct thread_args* args = (struct thread_args*)(arg);
-    struct client_packet_header cph = {ROLE_USER, COMPILE_FILE, 0};
-    LOG_SUCCESS(args->user_id, "Thread [%lu] has started sending files...", pthread_self());
-    if(write(*args->sd, &cph, sizeof(struct client_packet_header)) == -1){
-        LOG_ERROR(args->user_id, "Failed to write header: %s.", strerror(errno));
-        print_sys_error(strerror(errno));
-        return NULL;
-    }
+    // struct client_packet_header cph = {ROLE_USER, COMPILE_FILE, 0};
+    // LOG_SUCCESS(args->user_id, "Thread [%lu] has started sending files...", pthread_self());
+    // if(write(*args->sd, &cph, sizeof(struct client_packet_header)) == -1){
+    //     LOG_ERROR(args->user_id, "Failed to write header: %s.", strerror(errno));
+    //     print_sys_error(strerror(errno));
+    //     return NULL;
+    // }
     LOG_DEBUG(args->user_id, "Sending file %s to server.", args->file_name);
     send_data(args->file_name, *(args->sd));
     char output_file[strlen(args->file_name) + 1];
@@ -53,12 +53,6 @@ int main(int argc, char* argv[]){
         return -1;
     }
     //temporary users and admin ids assigned
-    for(int i = 0;i<10;i++){
-        valid_admins[i] = 10 + i;
-    }
-    for(int i = 0;i<100;i++){
-        valid_users[i] = 100 + i;
-    }
     LOG_SUCCESS(0,"Log file successfully created.");
     clock_t begin = clock();
     signal(SIGPIPE, SIG_IGN);
@@ -72,14 +66,25 @@ int main(int argc, char* argv[]){
     }
     login_info info = display_login_page(argc);
     bool found = false;
+    int val;
     if(info.rd == ROLE_ADMIN){
-        for(int i = 0;i<10;i++){
-            found |= (info.id == valid_admins[i]);
+        int fd_admin = open("/home/aryan_khadgi/distributed_compiler/data/admin.bin", O_RDONLY, 0677);
+        if(fd_admin < 0){
+            print_sys_error("Could not open Admin database.");
         }
+        while(read(fd_admin,&val, sizeof(int)) > 0){
+            if(val == info.id){found = true;break;}
+        }
+        close(fd_admin);
     }else{
-        for(int i = 0;i<100;i++){
-            found |= (info.id == valid_users[i]);
+        int fd_user = open("/home/aryan_khadgi/distributed_compiler/data/user.bin", O_RDONLY, 0677);
+        if(fd_user < 0){
+            print_sys_error("Could not open User database.");
         }
+        while(read(fd_user,&val, sizeof(int)) > 0){
+            if(val == info.id){found = true;break;}
+        }
+        close(fd_user);
     }
     if(!found){
         LOG_ERROR(info.id, "Enter a valid username.");
@@ -109,24 +114,28 @@ int main(int argc, char* argv[]){
         free(sd);
     }else{
         pthread_t threads[argc - 1];
-        char *server_ip[2] = {"127.0.0.1","127.0.0.1"};
+        char *server_ip[2] = {"172.20.10.5","172.20.10.2"};
+        // char *server_ip[2] = {"127.0.0.1","127.0.0.1"};
         int next_server = 0;
         for (int i = 0; i < argc - 1; i++){
             ping_server:
-            char *avaliable_ip = "127.0.0.1";
+            char *avaliable_ip = NULL;
             int target_index = -1;
             for(int k = 0; k < 2; k++){
                 int j = (next_server + k) % 2;
-                struct client_packet_header cph = {ROLE_USER, PING_IP, info.id};
+                struct client_packet_header cph = {ROLE_USER, PING_IP, htonl((uint32_t)info.id)};
                 int* packet_sd = malloc(sizeof(int));
-                if(init_connection(packet_sd, server_ip[j]) == false){ free(packet_sd); continue; }
-                write(*packet_sd, &cph,sizeof(struct client_packet_header));
+                if(init_connection(packet_sd, server_ip[j]) == false){ 
+                    free(packet_sd); 
+                    continue; 
+                }
+                write(*packet_sd, &cph, sizeof(struct client_packet_header));
                 uint32_t response;
-                read(*packet_sd,&response, sizeof(uint32_t));
+                read(*packet_sd, &response, sizeof(uint32_t));
                 response = ntohl(response);
                 close(*packet_sd);
                 free(packet_sd);
-                if(response == 1){  
+                if(response >= 1){
                     avaliable_ip = server_ip[j];
                     target_index = j;
                     break;
@@ -142,6 +151,10 @@ int main(int argc, char* argv[]){
             if(init_connection(sd, avaliable_ip) == false){ free(sd);continue; }
             LOG_SUCCESS(info.id, "Successfully connected to server at IP %s.", avaliable_ip);
             printf("Successfully connected to server at IP %s.\n", avaliable_ip);
+
+            struct client_packet_header file_cph = {ROLE_USER, COMPILE_FILE, htonl((uint32_t)info.id)};
+            write(*sd, &file_cph, sizeof(struct client_packet_header));
+            
             struct thread_args* args = malloc(sizeof(struct thread_args));
             args->file_name = files[i];
             args->sd = sd;
@@ -158,7 +171,7 @@ int main(int argc, char* argv[]){
             if (target_index != -1){
                 next_server = (target_index + 1) % 2; 
             }
-            usleep(15000);
+            // usleep(15000);
         }
         for(int i = 0;i<argc - 1;i++){
             pthread_join(threads[i],NULL);

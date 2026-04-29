@@ -21,6 +21,8 @@
 #include "error_logger.h"
 #include <time.h>
 #include "log_helper.h"
+#include <semaphore.h>
+#include <ctype.h>
 #define PORT_NO 8080
 #define CLIENT 100
 typedef enum {
@@ -30,9 +32,11 @@ typedef enum {
 struct client_packet_header{
     Roles rd;
     int operation;
-    int user_id;
+    uint32_t user_id;
 };
 typedef enum{
     PING_IP = 1,
     COMPILE_FILE = 2,
+    PING_IP_CONFIRMED = 3,
+    PING_IP_NOT_AVALIABLE = 4
 } User_OP;

@@ -22,7 +22,7 @@ int init_log_file(){
 void generate_log_name(){
     time_t now = time(NULL);
     struct tm *t = localtime(&now);
-    snprintf(log_file_name, sizeof(log_file_name), "log_%04d%02d%02d_%02d%02d%02d.txt", 
+    snprintf(log_file_name, sizeof(log_file_name), "log_%04d%02d%02d_%02d%02d%02d.log", 
          t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
          t->tm_hour, t->tm_min, t->tm_sec);
     return;
