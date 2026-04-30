@@ -68,7 +68,7 @@ Common things you may want to adjust in code:
 - **Large output gets cut off**: there may be buffer limits; increase them in the networking code.
 
 ## Security note
-Remote compilation can be dangerous if the server accepts untrusted input. Avoid exposing the server publicly until you add authentication/sandboxing/resource limits.
+Remote compilation can be dangerous if the server accepts untrusted input.
 
 ## License
 MIT — see [LICENSE](LICENSE).
