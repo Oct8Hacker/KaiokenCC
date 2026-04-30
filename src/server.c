@@ -44,21 +44,34 @@ int init_connection(int *sd){
 void* handle_client(void* arg){
     int nsd = *(int*)arg;
     free(arg);
+    if (sem_trywait(&mutex) != 0) {
+        uint32_t response = htonl(0);
+        write(nsd, &response, sizeof(uint32_t));
+        close(nsd);
+        LOG_WARN(0, "Thread %lu rejected client. CPU is full.", pthread_self());
+        return NULL;
+    }
+    pthread_mutex_lock(&stats_lock);
+    active_jobs++;
+    pthread_mutex_unlock(&stats_lock);
+    uint32_t response = htonl(1);
+    write(nsd, &response, sizeof(uint32_t));
     LOG_SUCCESS(0, "Thread %lu started compilation.",pthread_self());
     printf("[Thread %lu] Handling new compilation job...\n", pthread_self());
     char temp_filename[] = "job_XXXXXX.c";
     if(!rcv_data(temp_filename, nsd, 0)){
+        pthread_mutex_lock(&stats_lock);
+        active_jobs--;
+        pthread_mutex_unlock(&stats_lock);
         printf("[Thread %lu] job failed...\n",pthread_self());
         print_thread_error(strerror(errno));
         LOG_ERROR(0, "Thread %lu compilation failed in receiving files from client.",pthread_self());
         return NULL;
     }
     LOG_SUCCESS(0, "Thread %lu received file from client. File stored temporarily as %s.",pthread_self(), temp_filename);
-    sem_wait(&mutex);
-    active_jobs++;
     int fd[2];
-    pipe(fd);
     pid_t pid = fork();
+    pipe(fd);
     if(pid == -1){
         print_thread_error("Fork Failed!");
         LOG_ERROR(0, "Thread %lu terminating as fork failed.",pthread_self());
@@ -109,11 +122,10 @@ void* handle_client(void* arg){
         LOG_SUCCESS(0,"Files %s and object file %s are deleted.",temp_filename, output_file);
     }
     printf("[Thread %lu] Job finished.\n", pthread_self());
-    LOG_SUCCESS(0, "Thread %lu has successfully completed the compilation.",pthread_self());
     sem_post(&mutex);
     return NULL;
 }
-void handle_ctrl_c() {
+void handle_ctrl_c(){
     printf("\n[Server]: Ctrl+C detected! Safely shutting down...\n");
     printf("Number of active jobs: %d\nTotal jobs: %d done before server exiting.\n", active_jobs, total_jobs);
     exit(0);
@@ -185,18 +197,6 @@ int main(){
                     continue;
                 }
                 pthread_detach(thread_id);
-                
-            }else if(cph.operation == PING_IP){
-                pthread_mutex_lock(&stats_lock);
-                uint32_t threads_avaliable = htonl((uint32_t)((int)active_jobs < cores));
-                pthread_mutex_unlock(&stats_lock);
-                
-                if(write(nsd, &threads_avaliable, sizeof(uint32_t)) == -1){
-                    LOG_ERROR(0,"Write failed");
-                    print_sys_error("Write failed in sending IP\n");
-                }
-                close(nsd); 
-                
             }else{
                 LOG_ERROR(cph.user_id,"Packet got corrupted mid-way. Resend it.");
                 close(nsd);

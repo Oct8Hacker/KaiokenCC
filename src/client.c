@@ -22,15 +22,8 @@ bool init_connection(int *sd, char* ip){
 }
 void* send_multiple_files(void *arg){
     struct thread_args* args = (struct thread_args*)(arg);
-    // struct client_packet_header cph = {ROLE_USER, COMPILE_FILE, 0};
-    // LOG_SUCCESS(args->user_id, "Thread [%lu] has started sending files...", pthread_self());
-    // if(write(*args->sd, &cph, sizeof(struct client_packet_header)) == -1){
-    //     LOG_ERROR(args->user_id, "Failed to write header: %s.", strerror(errno));
-    //     print_sys_error(strerror(errno));
-    //     return NULL;
-    // }
     LOG_DEBUG(args->user_id, "Sending file %s to server.", args->file_name);
-    send_data(args->file_name, *(args->sd));
+    send_data(args->file_name, *(args->sd));    
     char output_file[strlen(args->file_name) + 1];
     strcpy(output_file, args->file_name);
     output_file[strlen(args->file_name) - 1] = 'o';
@@ -114,67 +107,47 @@ int main(int argc, char* argv[]){
         free(sd);
     }else{
         pthread_t threads[argc - 1];
-        char *server_ip[2] = {"172.20.10.5","172.20.10.2"};
-        // char *server_ip[2] = {"127.0.0.1","127.0.0.1"};
+        char *server_ip[2] = {"127.0.0.1","127.0.0.1"};
         int next_server = 0;
         for (int i = 0; i < argc - 1; i++){
-            ping_server:
-            char *avaliable_ip = NULL;
-            int target_index = -1;
+            int *sd = (int *)malloc(sizeof(int));
+            char *target_ip = NULL;
+            find_server:
             for(int k = 0; k < 2; k++){
                 int j = (next_server + k) % 2;
-                struct client_packet_header cph = {ROLE_USER, PING_IP, htonl((uint32_t)info.id)};
-                int* packet_sd = malloc(sizeof(int));
-                if(init_connection(packet_sd, server_ip[j]) == false){ 
-                    free(packet_sd); 
-                    continue; 
-                }
-                write(*packet_sd, &cph, sizeof(struct client_packet_header));
-                uint32_t response;
-                read(*packet_sd, &response, sizeof(uint32_t));
-                response = ntohl(response);
-                close(*packet_sd);
-                free(packet_sd);
-                if(response >= 1){
-                    avaliable_ip = server_ip[j];
-                    target_index = j;
-                    break;
+                if(init_connection(sd, server_ip[j]) == false){ continue; }
+                struct client_packet_header file_cph = {ROLE_USER, COMPILE_FILE, htonl((uint32_t)info.id)};
+                write(*sd, &file_cph, sizeof(struct client_packet_header));
+                uint32_t server_response;
+                read(*sd, &server_response, sizeof(uint32_t));
+                server_response = ntohl(server_response);
+                if(server_response == 1){
+                    target_ip = server_ip[j];
+                    next_server = (j + 1) % 2;
+                    break; 
+                }else{
+                    close(*sd);
                 }
             }
-            if(avaliable_ip == NULL){
-                LOG_WARN(info.id, "No available servers as of now. Waiting for 0.15ms .");
-                print_error("No Avaliable Servers as of now please wait for some time.");
-                usleep(1500);
-                goto ping_server;
+            if(target_ip == NULL){
+                LOG_WARN(info.id, "All servers full. Waiting 100ms before retrying.");
+                usleep(100000); 
+                goto find_server;
             }
-            int *sd = (int *)malloc(sizeof(int));
-            if(init_connection(sd, avaliable_ip) == false){ free(sd);continue; }
-            LOG_SUCCESS(info.id, "Successfully connected to server at IP %s.", avaliable_ip);
-            printf("Successfully connected to server at IP %s.\n", avaliable_ip);
-
-            struct client_packet_header file_cph = {ROLE_USER, COMPILE_FILE, htonl((uint32_t)info.id)};
-            write(*sd, &file_cph, sizeof(struct client_packet_header));
-            
+            LOG_SUCCESS(info.id, "Successfully claimed core on IP %s.", target_ip);
+            printf("Successfully claimed core on IP %s.\n", target_ip);
             struct thread_args* args = malloc(sizeof(struct thread_args));
             args->file_name = files[i];
             args->sd = sd;
             args->user_id = info.id;
-            pthread_t thread_id;
-            thread_creation:
-            if(pthread_create(&thread_id, NULL, send_multiple_files, (void *)args) != 0){
+            if(pthread_create(&threads[i], NULL, send_multiple_files, (void *)args) != 0){
                 LOG_ERROR(info.id, "Thread creation failed: %s.", strerror(errno));
                 print_sys_error(strerror(errno));
-                usleep(12000);
-                goto thread_creation;
             }
-            threads[i] = thread_id;
-            if (target_index != -1){
-                next_server = (target_index + 1) % 2; 
-            }
-            // usleep(15000);
+            usleep(15000);
         }
-        for(int i = 0;i<argc - 1;i++){
-            pthread_join(threads[i],NULL);
+        for(int i = 0; i < argc - 1; i++){
+            pthread_join(threads[i], NULL);
         }
     }
     clock_t end = clock();
