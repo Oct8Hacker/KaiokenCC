@@ -27,7 +27,7 @@ make
 
 2. In another terminal, run the client:
 ```sh
-./client
+./client (also specify the file to compile or else you will enter the admin mode)
 ```
 
 ## Project layout
