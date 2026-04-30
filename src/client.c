@@ -20,10 +20,59 @@ bool init_connection(int *sd, char* ip){
     }
     return true;
 }
+// Read an exact number of bytes from the socket.
+static int read_all(int fd, void *buf, size_t len){
+    size_t off = 0;
+    char *ptr = (char *)buf;
+    while(off < len){
+        ssize_t n = read(fd, ptr + off, len - off);
+        if(n <= 0){
+            return -1;
+        }
+        off += (size_t)n;
+    }
+    return 0;
+}
 void* send_multiple_files(void *arg){
     struct thread_args* args = (struct thread_args*)(arg);
     LOG_DEBUG(args->user_id, "Sending file %s to server.", args->file_name);
     send_data(args->file_name, *(args->sd));    
+    // Protocol: server sends compile status before any object data.
+    uint32_t status_net = 0;
+    if(read_all(*(args->sd), &status_net, sizeof(status_net)) != 0){
+        LOG_ERROR(args->user_id, "Failed to read compile status for %s.", args->file_name);
+        print_error("Failed to read compile status.");
+        close(*(args->sd));
+        free(args->sd);
+        free(arg);
+        return NULL;
+    }
+    uint32_t status = ntohl(status_net);
+    if(status != COMPILE_STATUS_OK){
+        // Protocol: read error length + error text and print to stderr.
+        uint32_t len_net = 0;
+        if(read_all(*(args->sd), &len_net, sizeof(len_net)) == 0){
+            uint32_t len = ntohl(len_net);
+            if(len > 0){
+                char *err_buf = (char *)malloc(len + 1);
+                if(err_buf != NULL && read_all(*(args->sd), err_buf, len) == 0){
+                    err_buf[len] = '\0';
+                    fprintf(stderr, "\n[GCC ERROR]\n%.*s\n", (int)len, err_buf);
+                }else{
+                    print_error("Compilation failed (error message read failed).");
+                }
+                free(err_buf);
+            }else{
+                print_error("Compilation failed (no error message)." );
+            }
+        }else{
+            print_error("Compilation failed (no error length)." );
+        }
+        close(*(args->sd));
+        free(args->sd);
+        free(arg);
+        return NULL;
+    }
     char output_file[strlen(args->file_name) + 1];
     strcpy(output_file, args->file_name);
     output_file[strlen(args->file_name) - 1] = 'o';
@@ -153,6 +202,6 @@ int main(int argc, char* argv[]){
     clock_t end = clock();
     double time_spent = (double)(end - begin) / CLOCKS_PER_SEC;
     LOG_SUCCESS(info.id, "Client completed compilation in %.15lf seconds.", time_spent);
-    printf("Files compiled in %.8lf.\n", time_spent);
+    printf("Client ran for %.8lf.\n", time_spent);
     return 0;
 }

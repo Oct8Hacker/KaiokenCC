@@ -25,6 +25,8 @@
 #include <ctype.h>
 #define PORT_NO 8080
 #define CLIENT 100
+#define COMPILE_STATUS_OK 1
+#define COMPILE_STATUS_ERR 0
 typedef enum {
     ROLE_ADMIN = 1,
     ROLE_USER = 2,

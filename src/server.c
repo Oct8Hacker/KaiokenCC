@@ -41,6 +41,34 @@ int init_connection(int *sd){
     LOG_SUCCESS(0,"Server successfully listening at port: %d, socket: %d and listening upto %d clients.", PORT_NO, *sd, CLIENT);
     return true;
 }
+// Send the exact number of bytes over the socket.
+static int send_all(int fd, const void *buf, size_t len){
+    size_t off = 0;
+    const char *ptr = (const char *)buf;
+    while(off < len){
+        ssize_t n = write(fd, ptr + off, len - off);
+        if(n <= 0){
+            return -1;
+        }
+        off += (size_t)n;
+    }
+    return 0;
+}
+// Protocol helper: fixed-width integers are sent in network byte order.
+static int send_u32(int fd, uint32_t val){
+    uint32_t net = htonl(val);
+    return send_all(fd, &net, sizeof(net));
+}
+// Protocol: status (ERR) + error length + error payload.
+static void send_compile_error(int nsd, const char *msg, uint32_t len){
+    if(send_u32(nsd, COMPILE_STATUS_ERR) != 0){
+        return;
+    }
+    send_u32(nsd, len);
+    if(len > 0){
+        send_all(nsd, msg, len);
+    }
+}
 void* handle_client(void* arg){
     int nsd = *(int*)arg;
     free(arg);
@@ -70,15 +98,30 @@ void* handle_client(void* arg){
     }
     LOG_SUCCESS(0, "Thread %lu received file from client. File stored temporarily as %s.",pthread_self(), temp_filename);
     int fd[2];
+    // Capture gcc stderr via pipe so the parent can forward it to the client.
+    if(pipe(fd) == -1){
+        const char *msg = "Server pipe() failed before gcc.";
+        LOG_ERROR(0, "Thread %lu terminating as pipe failed.", pthread_self());
+        send_compile_error(nsd, msg, (uint32_t)strlen(msg));
+        pthread_mutex_lock(&stats_lock);
+        active_jobs--;
+        pthread_mutex_unlock(&stats_lock);
+        close(nsd);
+        unlink(temp_filename);
+        sem_post(&mutex);
+        return NULL;
+    }
     pid_t pid = fork();
-    pipe(fd);
     if(pid == -1){
         print_thread_error("Fork Failed!");
         LOG_ERROR(0, "Thread %lu terminating as fork failed.",pthread_self());
+        close(fd[0]);
+        close(fd[1]);
         sem_post(&mutex);
         return NULL;
     }
     if(!pid){
+        // Child: redirect stderr to the pipe, then exec gcc.
         close(fd[0]);
         close(nsd);
         close(2);
@@ -91,12 +134,56 @@ void* handle_client(void* arg){
         sem_post(&mutex);
         return NULL;
     }else{
-        waitpid(pid,NULL,0);
+        int status = 0;
+        waitpid(pid, &status, 0);
         close(fd[1]);
-        char buffer[1024];
-        int val = read(fd[0], &buffer, sizeof(buffer));
-        if(val > 0){
-            LOG_ERROR(0,"Thread %lu terminating as compilation failed with error message: %s", pthread_self(),buffer);
+
+        // Parent: read entire stderr stream (if any) for reporting.
+        char *err_buf = NULL;
+        size_t err_size = 0;
+        char tmp[512];
+        ssize_t nread;
+        while((nread = read(fd[0], tmp, sizeof(tmp))) > 0){
+            char *new_buf = realloc(err_buf, err_size + (size_t)nread + 1);
+            if(new_buf == NULL){
+                free(err_buf);
+                err_buf = NULL;
+                err_size = 0;
+                break;
+            }
+            err_buf = new_buf;
+            memcpy(err_buf + err_size, tmp, (size_t)nread);
+            err_size += (size_t)nread;
+        }
+        close(fd[0]);
+        if(err_buf != NULL){
+            err_buf[err_size] = '\0';
+        }
+
+        bool compile_failed = true;
+        if(WIFEXITED(status) && WEXITSTATUS(status) == 0){
+            compile_failed = false;
+        }
+
+        if(compile_failed){
+            const char *fallback = "Compilation failed with no stderr output.";
+            const char *msg = (err_buf != NULL && err_size > 0) ? err_buf : fallback;
+            uint32_t msg_len = (err_buf != NULL && err_size > 0) ? (uint32_t)err_size : (uint32_t)strlen(fallback);
+            LOG_ERROR(0,"Thread %lu terminating as compilation failed: %s", pthread_self(), msg);
+            send_compile_error(nsd, msg, msg_len);
+            pthread_mutex_lock(&stats_lock);
+            active_jobs--;
+            pthread_mutex_unlock(&stats_lock);
+            close(nsd);
+            unlink(temp_filename);
+            free(err_buf);
+            sem_post(&mutex);
+            return NULL;
+        }
+        free(err_buf);
+
+        if(send_u32(nsd, COMPILE_STATUS_OK) != 0){
+            LOG_ERROR(0, "Thread %lu terminating as status send failed.",pthread_self());
             pthread_mutex_lock(&stats_lock);
             active_jobs--;
             pthread_mutex_unlock(&stats_lock);
