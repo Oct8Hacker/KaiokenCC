@@ -1,4 +1,4 @@
-# distributed_compiler
+# KaiokenCC
 
 A distributed compilation experiment written in **C**. The goal is to compile source files on a remote machine (server) from a local machine (client), and send the build output back to the client.
 
